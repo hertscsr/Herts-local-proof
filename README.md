@@ -2,7 +2,7 @@
 
 Local project marketing, review management, lead gen, and local SEO platform
 for Herts Roofing & Construction. See `SPEC.md` for the full product spec and
-the fixes made to the original brief..
+the fixes made to the original brief...
 
 ## Stack
 
