@@ -45,6 +45,7 @@ export interface Project {
   latitude_public: number; // jittered — safe for public map
   longitude_public: number; // jittered — safe for public map
   geocode_source: "geocoded" | "manual_pin";
+  companycam_project_id: string | null;
   service_type: ServiceType;
   project_type: string;
   manufacturer: string | null;
