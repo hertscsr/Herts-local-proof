@@ -20,6 +20,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if ("project_id" in body) {
     updates.project_id = body.project_id || null;
     updates.match_status = "manual";
+
+    // Manually assigning a job site to a 4-5 star review is effectively you
+    // confirming it — auto-publish it too, same rule as the import route,
+    // unless this same request also explicitly sets approved_for_website.
+    if (!("approved_for_website" in body) && body.project_id) {
+      const { data: current } = await supabase
+        .from("reviews")
+        .select("rating")
+        .eq("id", params.id)
+        .maybeSingle();
+      if (current && current.rating >= 4) {
+        updates.approved_for_website = true;
+      }
+    }
   }
   if ("approved_for_website" in body) updates.approved_for_website = !!body.approved_for_website;
   if ("reply_text" in body) updates.reply_text = body.reply_text;

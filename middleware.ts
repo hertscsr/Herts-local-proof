@@ -46,6 +46,9 @@ export const config = {
     "/api/projects",
     "/api/projects/:path*",
     "/api/companycam/import",
+    "/api/companycam/search",
+    "/api/companycam/cc-photos",
+    "/api/companycam/manual-import",
     "/api/reviews/:path*",
   ],
 };

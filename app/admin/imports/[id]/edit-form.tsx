@@ -23,6 +23,11 @@ const SERVICE_TYPES: { value: ServiceType; label: string }[] = [
 export default function EditProjectForm({ project }: Props) {
   const router = useRouter();
   const [serviceType, setServiceType] = useState<ServiceType>(project.service_type);
+  const [basics, setBasics] = useState({
+    customer_name: project.customer_name ?? "",
+    city: project.city ?? "",
+    state: project.state ?? "",
+  });
   const [fields, setFields] = useState({
     page_title: project.page_title ?? "",
     h1: project.h1 ?? "",
@@ -76,21 +81,55 @@ export default function EditProjectForm({ project }: Props) {
       const res = await fetch(`/api/projects/${project.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...fields, faq, service_type: serviceType }),
+        body: JSON.stringify({ ...basics, ...fields, faq, service_type: serviceType }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Save failed");
-      setSavedMsg("Saved.");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `Save failed (${res.status})`);
+      // Go back to the imports list so the change is obviously visible —
+      // staying on this page after a save gave no clear sign anything
+      // actually happened.
+      router.push("/admin/imports?saved=1");
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
-    } finally {
       setSaving(false);
     }
   }
 
   return (
     <div className="mt-6 space-y-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <label className="block text-sm font-medium text-slate-700">Project name</label>
+          <input
+            value={basics.customer_name}
+            onChange={(e) => setBasics((b) => ({ ...b, customer_name: e.target.value }))}
+            placeholder="e.g. Smith Roof Replacement"
+            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700">City</label>
+          <input
+            value={basics.city}
+            onChange={(e) => setBasics((b) => ({ ...b, city: e.target.value }))}
+            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700">State</label>
+          <input
+            value={basics.state}
+            onChange={(e) => setBasics((b) => ({ ...b, state: e.target.value }))}
+            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          />
+        </div>
+      </div>
+      <p className="-mt-3 text-xs text-slate-500">
+        Fixes &quot;Unnamed Project&quot; or a wrong city/state — CompanyCam fills these in on import, but
+        you can correct them here.
+      </p>
+
       <div>
         <label className="block text-sm font-medium text-slate-700">Service type</label>
         <select

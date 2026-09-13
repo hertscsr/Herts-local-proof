@@ -12,6 +12,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <a href="/admin/imports" className="text-sm text-slate-500 hover:text-slate-700">
             Imports
           </a>
+          <a href="/admin/companycam-import" className="text-sm text-slate-500 hover:text-slate-700">
+            Manual Import
+          </a>
           <a href="/admin/reviews" className="text-sm text-slate-500 hover:text-slate-700">
             Reviews
           </a>

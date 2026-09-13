@@ -69,11 +69,18 @@ export default async function ProjectPage({ params }: Props) {
   const photos = await getPhotos(project.id);
   const reviews = await getReviews(project.id);
 
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.hertsroofingnj.com";
+  const pageUrl = `${siteUrl}/projects/${project.slug}`;
+
+  const avgRating =
+    reviews.length > 0 ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length : null;
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
     name: project.h1 ?? project.page_title,
     description: project.meta_description,
+    url: pageUrl,
     areaServed: `${project.city}, ${project.state}`,
     provider: {
       "@type": "RoofingContractor",
@@ -85,7 +92,49 @@ export default async function ProjectPage({ params }: Props) {
         postalCode: project.zip,
       },
     },
+    // Only attach a rating when we actually have reviews for this specific
+    // job — never a made-up or company-wide number on a page about one job.
+    ...(avgRating
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: avgRating.toFixed(1),
+            reviewCount: reviews.length,
+          },
+        }
+      : {}),
   };
+
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: siteUrl },
+      { "@type": "ListItem", position: 2, name: "Projects Near You", item: `${siteUrl}/near-me` },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: `${project.city}, ${project.state}`,
+        item: `${siteUrl}/near-me?city=${encodeURIComponent(project.city)}`,
+      },
+      { "@type": "ListItem", position: 4, name: project.h1 ?? project.page_title, item: pageUrl },
+    ],
+  };
+
+  // FAQPage schema is what actually earns the expandable Q&A rich result in
+  // Google — the questions/answers must match what's visibly on the page.
+  const faqLd =
+    project.faq && project.faq.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          mainEntity: project.faq.map((item: { question: string; answer: string }) => ({
+            "@type": "Question",
+            name: item.question,
+            acceptedAnswer: { "@type": "Answer", text: item.answer },
+          })),
+        }
+      : null;
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
@@ -96,6 +145,16 @@ export default async function ProjectPage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+      />
+      {faqLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+        />
+      )}
 
       <h1 className="text-3xl font-bold text-brand">{project.h1 ?? project.page_title}</h1>
       <p className="mt-2 text-slate-600">

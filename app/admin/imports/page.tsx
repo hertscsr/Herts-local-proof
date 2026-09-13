@@ -2,10 +2,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hasNeedsReviewFlag } from "@/lib/needs-review";
 import PublishButton from "./publish-button";
 import UnpublishButton from "./unpublish-button";
+import DeleteButton from "./delete-button";
 
 export const dynamic = "force-dynamic";
 
-export default async function ImportsPage() {
+export default async function ImportsPage({
+  searchParams,
+}: {
+  searchParams: { saved?: string };
+}) {
   const supabase = createAdminClient();
   const { data: projects } = await supabase
     .from("projects")
@@ -44,11 +49,28 @@ export default async function ImportsPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      <h1 className="text-2xl font-bold text-brand">Imported from CompanyCam</h1>
-      <p className="mt-2 text-sm text-slate-600">
-        Projects pulled in automatically when tagged &quot;Hertsworks&quot; in CompanyCam. Review the
-        service type and photos, then publish — nothing here is live on the public site until you do.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-brand">Imported from CompanyCam</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Projects pulled in automatically when tagged &quot;Hertsworks&quot; in CompanyCam. Review
+            the service type and photos, then publish — nothing here is live on the public site until
+            you do.
+          </p>
+        </div>
+        <a
+          href="/admin/companycam-import"
+          className="shrink-0 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        >
+          Manually pull in a job
+        </a>
+      </div>
+
+      {searchParams.saved === "1" && (
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Saved. Changes are reflected below.
+        </div>
+      )}
 
       {needsAttention > 0 && (
         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -126,6 +148,7 @@ export default async function ImportsPage() {
                   </a>
                   {!published && <PublishButton projectId={p.id} />}
                   {published && <UnpublishButton projectId={p.id} />}
+                  {!published && <DeleteButton projectId={p.id} label={p.customer_name} />}
                 </div>
               </div>
             </div>

@@ -58,18 +58,24 @@ export async function POST(req: NextRequest) {
       r.homeowner,
       r.date ?? new Date().toISOString()
     );
+    const rating = Math.max(1, Math.min(5, Math.round(r.rating)));
 
     const { error } = await supabase.from("reviews").insert({
       project_id: projectId,
       homeowner: r.homeowner,
-      rating: Math.max(1, Math.min(5, Math.round(r.rating))),
+      rating,
       review: r.review,
       source: "google",
       google_review_id: r.google_review_id,
       reviewer_photo_url: r.reviewer_photo_url ?? null,
       match_status: status,
       date: r.date ?? new Date().toISOString().slice(0, 10),
-      approved_for_website: false, // always requires a human look before it's public
+      // 4-5 star reviews that matched a job site go straight to the public
+      // site — no reason to sit on good feedback. Anything 3 stars or under,
+      // or that couldn't be matched to a project, waits for a human look —
+      // never auto-published, and never auto-hidden either: it still shows
+      // in /admin/reviews for you to read and reply to directly.
+      approved_for_website: rating >= 4 && status === "matched",
     });
 
     if (error) {

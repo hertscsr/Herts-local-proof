@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { importCompanyCamProject } from "@/lib/import-companycam";
+import { importCompanyCamProject, removeDraftOnLabelRemoved } from "@/lib/import-companycam";
 
 /**
  * Receives CompanyCam webhook events. Subscribed to project label events —
@@ -40,6 +40,23 @@ export async function POST(req: NextRequest) {
 
   if (!projectId) {
     return NextResponse.json({ ok: true, skipped: "no project id in payload" });
+  }
+
+  // Taking the "Hertsworks" label back off cleans up a draft that was never
+  // published — stops the imports list from filling up with jobs you
+  // decided not to send to the website after all. Published projects are
+  // left untouched (see removeDraftOnLabelRemoved).
+  if (body.event_type === "project.label_removed" && labelValue === "hertsworks") {
+    try {
+      const result = await removeDraftOnLabelRemoved(projectId);
+      return NextResponse.json({ ok: true, result });
+    } catch (e) {
+      console.error("CompanyCam draft cleanup failed", e);
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "cleanup failed" },
+        { status: 500 }
+      );
+    }
   }
 
   // Only import when the label that was just added is "Hertsworks" —

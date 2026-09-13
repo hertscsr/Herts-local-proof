@@ -9,6 +9,46 @@ interface Params {
 }
 
 /**
+ * DELETE /api/projects/:id — removes a draft that never got published (a
+ * stuck/duplicate CompanyCam import, a test project, one you decided not to
+ * use). Refuses to touch anything already published — unpublish it first if
+ * you really want it gone.
+ */
+export async function DELETE(_req: NextRequest, { params }: Params) {
+  const supabase = createAdminClient();
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, publication_status")
+    .eq("id", params.id)
+    .maybeSingle();
+
+  if (!project) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+  if (project.publication_status === "published") {
+    return NextResponse.json(
+      { error: "Unpublish this project before deleting it" },
+      { status: 400 }
+    );
+  }
+
+  const { data: photos } = await supabase.from("photos").select("storage_path").eq("project_id", params.id);
+  const paths = (photos ?? []).map((p) => p.storage_path);
+  if (paths.length > 0) {
+    await supabase.storage.from("project-photos").remove(paths);
+  }
+  await supabase.from("photos").delete().eq("project_id", params.id);
+
+  const { error } = await supabase.from("projects").delete().eq("id", params.id);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+/**
  * PATCH /api/projects/:id
  *
  * Two modes:
