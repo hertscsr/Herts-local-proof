@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { makeSlug } from "@/lib/slug";
 import { jitterCoordinates } from "@/lib/geo";
+import { stripNeedsReviewMarker } from "@/lib/needs-review";
 
 interface Params {
   params: { id: string };
@@ -80,6 +81,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         slug: finalSlug,
         publication_status: "published",
         project_status: "published",
+        // Publishing means someone looked at this and confirmed the service
+        // type is right — clear the "needs review" flag from auto-import so
+        // it doesn't keep showing the red warning on an already-live project.
+        project_description: stripNeedsReviewMarker(project.project_description),
       })
       .eq("id", params.id)
       .select()
@@ -133,6 +138,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+  }
+
+  // Staff explicitly setting the service type is itself confirmation it's
+  // now correct — clear the auto-import warning unless they also sent their
+  // own project_description in this same request (don't clobber that).
+  if ("service_type" in updates && !("project_description" in updates)) {
+    const { data: current } = await supabase
+      .from("projects")
+      .select("project_description")
+      .eq("id", params.id)
+      .maybeSingle();
+    if (current) {
+      updates.project_description = stripNeedsReviewMarker(current.project_description);
+    }
   }
 
   const { data, error } = await supabase

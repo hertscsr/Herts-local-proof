@@ -34,6 +34,9 @@ export default function SearchControls() {
         params.set(key, value);
       }
     }
+    // Any new filter/search starts back at page 1 — staying on page 4 of a
+    // now-different result set would just show an empty or wrong page.
+    params.delete("page");
     router.push(`${pathname}?${params.toString()}`);
   }
 

@@ -13,7 +13,11 @@ const LABEL_TO_SERVICE_TYPE: Record<string, string> = {
   "siding": "siding",
   "gutters": "gutters",
   "windows": "windows",
+  // Your actual CompanyCam label is "Decks" (plural) — keeping the old
+  // "decking"/"composite deck" spellings too in case those get used later.
+  "decks": "deck_construction",
   "decking": "deck_construction",
+  "deck": "deck_construction",
   "composite deck": "composite_deck",
   "chimney": "chimney",
   "skylight": "roof_repair", // closest existing category until a dedicated one is added
@@ -54,8 +58,15 @@ export async function importCompanyCamProject(ccProjectId: string) {
     .eq("companycam_project_id", ccProjectId)
     .maybeSingle();
 
+  // CompanyCam's project "name" is really the job title ("Rebuild Deck
+  // 12x24"), which is fine to show as the customer_name/title. Falls back
+  // to the street address (never the unhelpful literal "Unnamed Project")
+  // when a project was created with no name at all.
+  const fallbackName = ccProject.address?.street_address_1
+    ? `Job at ${ccProject.address.street_address_1}`
+    : "New Job — needs a name";
   const projectFields = {
-    customer_name: ccProject.name ?? "Unnamed Project",
+    customer_name: ccProject.name?.trim() || fallbackName,
     street_address_private: ccProject.address?.street_address_1 ?? "",
     city: ccProject.address?.city ?? "",
     state: ccProject.address?.state ?? "",

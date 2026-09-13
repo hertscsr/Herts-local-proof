@@ -104,12 +104,20 @@ export default async function DashboardPage() {
   const [stats, analytics] = await Promise.all([getStats(), getAnalytics()]);
 
   const tiles = [
-    { label: "Total Projects", value: stats.totalProjects },
-    { label: "Awaiting Photos", value: stats.awaitingPhotos },
-    { label: "Awaiting Review", value: stats.awaitingReview },
-    { label: "Reviews Received", value: stats.reviewsReceived },
-    { label: "Published Stories", value: stats.publishedStories },
-    { label: "Leads Generated", value: stats.leadsGenerated },
+    { label: "Total Projects", value: stats.totalProjects, accent: "text-brand" },
+    {
+      label: "Awaiting Photos",
+      value: stats.awaitingPhotos,
+      accent: stats.awaitingPhotos > 0 ? "text-amber-600" : "text-slate-900",
+    },
+    {
+      label: "Awaiting Review",
+      value: stats.awaitingReview,
+      accent: stats.awaitingReview > 0 ? "text-amber-600" : "text-slate-900",
+    },
+    { label: "Reviews Received", value: stats.reviewsReceived, accent: "text-slate-900" },
+    { label: "Published Stories", value: stats.publishedStories, accent: "text-emerald-600" },
+    { label: "Leads Generated", value: stats.leadsGenerated, accent: "text-brand-accent" },
   ];
 
   const overallConversion =
@@ -117,53 +125,64 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-brand">Dashboard</h1>
-        <a
-          href="/admin/projects/new"
-          className="rounded bg-brand px-4 py-2 text-sm font-medium text-white"
-        >
-          + New Project
-        </a>
+        <div className="flex gap-2">
+          <a
+            href="/admin/imports"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Review imports
+          </a>
+          <a
+            href="/admin/projects/new"
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+          >
+            + New Project
+          </a>
+        </div>
       </div>
 
       <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map((tile) => (
-          <div key={tile.label} className="rounded-lg border border-slate-200 p-4">
-            <div className="text-2xl font-bold">{tile.value}</div>
-            <div className="text-sm text-slate-500">{tile.label}</div>
+          <div
+            key={tile.label}
+            className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+          >
+            <div className={`text-3xl font-bold ${tile.accent}`}>{tile.value}</div>
+            <div className="mt-1 text-sm text-slate-500">{tile.label}</div>
           </div>
         ))}
       </div>
 
       <div className="mt-10">
-        <h2 className="text-lg font-semibold">Last {WINDOW_DAYS} days</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Last {WINDOW_DAYS} days</h2>
         <p className="mt-1 text-sm text-slate-500">
           What&apos;s actually driving calls — page views, map clicks, and estimate requests per
           project, straight from the site&apos;s own visitor tracking (not Google Analytics).
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div className="rounded-lg border border-slate-200 p-4">
-            <div className="text-2xl font-bold">{analytics.totals.page_view}</div>
-            <div className="text-sm text-slate-500">Project page views</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-2xl font-bold text-slate-900">{analytics.totals.page_view}</div>
+            <div className="mt-1 text-sm text-slate-500">Project page views</div>
           </div>
-          <div className="rounded-lg border border-slate-200 p-4">
-            <div className="text-2xl font-bold">{analytics.totals.map_pin_click}</div>
-            <div className="text-sm text-slate-500">Map pin clicks</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-2xl font-bold text-slate-900">{analytics.totals.map_pin_click}</div>
+            <div className="mt-1 text-sm text-slate-500">Map pin clicks</div>
           </div>
-          <div className="rounded-lg border border-slate-200 p-4">
-            <div className="text-2xl font-bold">{analytics.totalLeadsInWindow}</div>
-            <div className="text-sm text-slate-500">Leads submitted</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-2xl font-bold text-slate-900">{analytics.totalLeadsInWindow}</div>
+            <div className="mt-1 text-sm text-slate-500">Leads submitted</div>
           </div>
-          <div className="rounded-lg border border-slate-200 p-4">
-            <div className="text-2xl font-bold">{overallConversion.toFixed(1)}%</div>
-            <div className="text-sm text-slate-500">View → lead rate</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-2xl font-bold text-brand-accent">{overallConversion.toFixed(1)}%</div>
+            <div className="mt-1 text-sm text-slate-500">View → lead rate</div>
           </div>
         </div>
 
         {analytics.topProjects.length > 0 ? (
-          <div className="mt-6 overflow-x-auto">
+          <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">

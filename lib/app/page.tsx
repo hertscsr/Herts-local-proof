@@ -3,10 +3,10 @@ import Link from "next/link";
 export default function HomePage() {
   return (
     <main className="mx-auto max-w-4xl px-4 py-16 text-center">
-      <h1 className="text-4xl font-bold text-brand">Herts LocalProof</h1>
+      <h1 className="text-4xl font-bold text-brand">See What We&apos;ve Built in Your Neighborhood</h1>
       <p className="mt-4 text-slate-600">
-        Every completed project, turned into a homeowner page, a local SEO
-        asset, and a lead generator.
+        Real Herts projects. Real homes. Real results. Explore roofing, siding, and deck projects
+        completed near you—and see exactly what&apos;s possible for your home.
       </p>
       <Link
         href="/near-me"

@@ -2,14 +2,27 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Project, FaqItem } from "@/types/database";
+import type { Project, FaqItem, ServiceType } from "@/types/database";
 
 interface Props {
   project: Project;
 }
 
+const SERVICE_TYPES: { value: ServiceType; label: string }[] = [
+  { value: "roof_replacement", label: "Roof Replacement" },
+  { value: "roof_repair", label: "Roof Repair" },
+  { value: "storm_damage", label: "Storm Damage" },
+  { value: "siding", label: "Siding" },
+  { value: "gutters", label: "Gutters" },
+  { value: "windows", label: "Windows" },
+  { value: "deck_construction", label: "Deck Construction" },
+  { value: "composite_deck", label: "Composite Deck" },
+  { value: "chimney", label: "Chimney" },
+];
+
 export default function EditProjectForm({ project }: Props) {
   const router = useRouter();
+  const [serviceType, setServiceType] = useState<ServiceType>(project.service_type);
   const [fields, setFields] = useState({
     page_title: project.page_title ?? "",
     h1: project.h1 ?? "",
@@ -63,7 +76,7 @@ export default function EditProjectForm({ project }: Props) {
       const res = await fetch(`/api/projects/${project.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...fields, faq }),
+        body: JSON.stringify({ ...fields, faq, service_type: serviceType }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
@@ -78,6 +91,25 @@ export default function EditProjectForm({ project }: Props) {
 
   return (
     <div className="mt-6 space-y-5">
+      <div>
+        <label className="block text-sm font-medium text-slate-700">Service type</label>
+        <select
+          value={serviceType}
+          onChange={(e) => setServiceType(e.target.value as ServiceType)}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+        >
+          {SERVICE_TYPES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-slate-500">
+          Pulled in automatically from the CompanyCam label. Fix it here if it&apos;s wrong — saving
+          clears the &quot;needs review&quot; warning on the imports list.
+        </p>
+      </div>
+
       <button
         onClick={generate}
         disabled={generating}

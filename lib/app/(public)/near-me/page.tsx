@@ -20,11 +20,15 @@ export const metadata = {
     "See completed roofing, siding, deck, and gutter projects Herts Roofing & Construction has finished near your neighborhood.",
 };
 
+const PAGE_SIZE = 24;
+
 interface SearchParams {
   zip?: string;
   service?: string;
   lat?: string;
   lng?: string;
+  city?: string;
+  page?: string;
 }
 
 export default async function NearMePage({
@@ -37,10 +41,32 @@ export default async function NearMePage({
   const visitorLat = searchParams.lat ? parseFloat(searchParams.lat) : null;
   const visitorLng = searchParams.lng ? parseFloat(searchParams.lng) : null;
   const hasLocation = visitorLat != null && visitorLng != null && !Number.isNaN(visitorLat) && !Number.isNaN(visitorLng);
+  const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
 
-  let query = supabase.from("public_projects").select("*").limit(50);
+  // The "browse by area" list — every distinct city with a published
+  // project and how many it has, so a visitor (or you) can jump straight
+  // to one area instead of scrolling a huge flat list. Cheap enough to
+  // pull every city/state pair even with a lot of projects, since it's
+  // just two text columns.
+  const { data: allCityRows } = await supabase.from("public_projects").select("city, state");
+  const cityCounts = new Map<string, { city: string; state: string; count: number }>();
+  for (const row of allCityRows ?? []) {
+    const key = `${row.city}|${row.state}`;
+    const existing = cityCounts.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      cityCounts.set(key, { city: row.city, state: row.state, count: 1 });
+    }
+  }
+  const cityList = Array.from(cityCounts.values()).sort((a, b) => b.count - a.count);
+
+  let query = supabase.from("public_projects").select("*", { count: "exact" });
   if (searchParams.service) {
     query = query.eq("service_type", searchParams.service);
+  }
+  if (searchParams.city) {
+    query = query.eq("city", searchParams.city);
   }
   // Exact-ZIP filtering only kicks in when we don't have real coordinates
   // for the search (the ZIP box normally geocodes first — see
@@ -50,7 +76,15 @@ export default async function NearMePage({
     query = query.eq("zip", searchParams.zip);
   }
 
-  const { data: projects } = await query;
+  // No pagination once we're sorting by distance — visitor/ZIP location
+  // search is a small, specific result set, not something to page through.
+  if (!hasLocation) {
+    query = query.range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
+  } else {
+    query = query.limit(200);
+  }
+
+  const { data: projects, count: totalCount } = await query;
   const projectIds = (projects ?? []).map((p) => p.id);
 
   // One thumbnail per project (first uploaded photo) so cards aren't just
@@ -104,14 +138,62 @@ export default async function NearMePage({
     withDistance.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity));
   }
 
+  const totalPages = totalCount ? Math.ceil(totalCount / PAGE_SIZE) : 1;
+
+  function pageLink(targetPage: number) {
+    const params = new URLSearchParams();
+    if (searchParams.service) params.set("service", searchParams.service);
+    if (searchParams.city) params.set("city", searchParams.city);
+    if (searchParams.zip) params.set("zip", searchParams.zip);
+    params.set("page", String(targetPage));
+    return `/near-me?${params.toString()}`;
+  }
+
+  function cityLink(city: string) {
+    const params = new URLSearchParams();
+    if (searchParams.service) params.set("service", searchParams.service);
+    params.set("city", city);
+    return `/near-me?${params.toString()}`;
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="text-3xl font-bold text-brand">See Herts Projects Near You</h1>
       <p className="mt-2 text-slate-600">
-        {withDistance.length} projects near this area.
+        {hasLocation ? withDistance.length : totalCount ?? withDistance.length} projects
+        {searchParams.city ? ` in ${searchParams.city}, ${withDistance[0]?.state ?? ""}` : " near this area"}.
       </p>
 
       <SearchControls />
+
+      {cityList.length > 1 && (
+        <div className="mt-4">
+          <div className="text-sm font-medium text-slate-700">Browse by area:</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <a
+              href="/near-me"
+              className={`rounded-full border px-3 py-1 text-sm ${
+                !searchParams.city ? "border-brand-accent bg-brand-accent text-white" : "border-slate-300 text-slate-700"
+              }`}
+            >
+              All areas
+            </a>
+            {cityList.map((c) => (
+              <a
+                key={`${c.city}|${c.state}`}
+                href={cityLink(c.city)}
+                className={`rounded-full border px-3 py-1 text-sm ${
+                  searchParams.city === c.city
+                    ? "border-brand-accent bg-brand-accent text-white"
+                    : "border-slate-300 text-slate-700"
+                }`}
+              >
+                {c.city}, {c.state} ({c.count})
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ProjectMap
         projects={withDistance.map((p) => ({
@@ -174,6 +256,24 @@ export default async function NearMePage({
           </a>
         ))}
       </div>
+
+      {!hasLocation && totalPages > 1 && (
+        <div className="mt-8 flex items-center justify-center gap-4">
+          {page > 1 && (
+            <a href={pageLink(page - 1)} className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">
+              ← Previous
+            </a>
+          )}
+          <span className="text-sm text-slate-500">
+            Page {page} of {totalPages}
+          </span>
+          {page < totalPages && (
+            <a href={pageLink(page + 1)} className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">
+              Next →
+            </a>
+          )}
+        </div>
+      )}
     </main>
   );
 }
