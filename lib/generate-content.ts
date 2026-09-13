@@ -1,4 +1,5 @@
 import type { Project, FaqItem } from "@/types/database";
+import { generateText } from "@/lib/ai";
 
 /**
  * Uses Claude to draft the "story" content for a project page (introduction,
@@ -44,7 +45,7 @@ Project facts (use only these — do not invent specifics like exact dates, pric
 
 Write plain, direct, non-salesy contractor copy — a homeowner reading this should recognize their own situation, not feel marketed at. No AI-sounding filler words (delve, boast, robust, tapestry, testament, underscore, pivotal, meticulous, elevate), no em dashes, no exclamation points, no generic superlatives ("top-notch", "unparalleled"). Short sentences. Write like a person who actually did the work is describing it.
 
-Return ONLY valid JSON, no markdown fences, no commentary, matching exactly this shape:
+Return ONLY a JSON object, no markdown fences, no commentary, matching exactly this shape:
 {
   "page_title": "under 60 characters, includes the service and location",
   "h1": "a short human headline for the page, under 70 characters",
@@ -62,34 +63,9 @@ Return ONLY valid JSON, no markdown fences, no commentary, matching exactly this
 }
 
 export async function generateProjectContent(project: Project): Promise<GeneratedContent> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is not set — required to generate content.");
-  }
+  const raw = await generateText(buildPrompt(project), { maxTokens: 1500, json: true });
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 1500,
-      messages: [{ role: "user", content: buildPrompt(project) }],
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Claude API error (${res.status}): ${text.slice(0, 300)}`);
-  }
-
-  const data = await res.json();
-  const raw: string = data.content?.[0]?.text ?? "";
-
-  // Strip stray markdown fences in case the model adds them despite instructions.
+  // Strip stray markdown fences just in case the model adds them anyway.
   const cleaned = raw.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
 
   let parsed: GeneratedContent;

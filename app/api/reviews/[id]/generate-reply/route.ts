@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { generateText } from "@/lib/ai";
 
 interface Params {
   params: { id: string };
@@ -29,11 +30,6 @@ Rules: under 500 characters. No AI-sounding filler (delve, boast, robust, testam
  * admin page.
  */
 export async function POST(_req: NextRequest, { params }: Params) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY is not set" }, { status: 500 });
-  }
-
   const supabase = createAdminClient();
   const { data: review, error } = await supabase
     .from("reviews")
@@ -45,27 +41,15 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Review not found" }, { status: 404 });
   }
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 300,
-      messages: [{ role: "user", content: buildPrompt(review.homeowner, review.rating, review.review) }],
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    return NextResponse.json({ error: `Claude API error: ${text.slice(0, 300)}` }, { status: 500 });
+  try {
+    const reply = (
+      await generateText(buildPrompt(review.homeowner, review.rating, review.review), { maxTokens: 300 })
+    ).trim();
+    return NextResponse.json({ reply });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Generation failed" },
+      { status: 500 }
+    );
   }
-
-  const data = await res.json();
-  const reply = (data.content?.[0]?.text ?? "").trim();
-
-  return NextResponse.json({ reply });
 }
