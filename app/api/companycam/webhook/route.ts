@@ -30,23 +30,22 @@ export async function POST(req: NextRequest) {
   // function logs if CompanyCam ever changes something here.
   console.log("CompanyCam webhook payload", JSON.stringify(body));
 
-  // CompanyCam's real envelope (per their docs): { event_type, created_at,
-  // payload, webhook_id } — payload is the full Project object, matching
-  // what the CompanyCam API itself returns (id, labels: [...], etc.).
-  const project = body.payload ?? body.data ?? body;
-  const projectId: string | undefined = project?.id;
-  const labels: string[] = (project?.labels ?? []).map(
-    (l: any) => (l.display_value ?? l.value ?? "").toLowerCase()
-  );
+  // Confirmed real envelope from a live delivery (Vercel logs):
+  // { event_type: "project.label_added", created_at, payload: { project: {...}, label: {...} }, webhook_id }
+  // — project id is nested under payload.project.id, and the label that was
+  // just added is a single object at payload.label, not an array.
+  const projectId: string | undefined = body.payload?.project?.id;
+  const label = body.payload?.label;
+  const labelValue: string = (label?.display_value ?? label?.value ?? "").toLowerCase();
 
   if (!projectId) {
     return NextResponse.json({ ok: true, skipped: "no project id in payload" });
   }
 
-  // Only import when "Hertsworks" is one of the project's current labels —
+  // Only import when the label that was just added is "Hertsworks" —
   // that's the dedicated on-switch. Ignores unrelated label/tag changes.
-  if (!labels.includes("hertsworks")) {
-    return NextResponse.json({ ok: true, skipped: `no "Hertsworks" label on this project (has: ${labels.join(", ") || "none"})` });
+  if (labelValue !== "hertsworks") {
+    return NextResponse.json({ ok: true, skipped: `label "${labelValue}" is not "Hertsworks"` });
   }
 
   try {
