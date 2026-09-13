@@ -48,11 +48,24 @@ export default function EditProjectForm({ project }: Props) {
   }
 
   async function generate() {
+    if (!serviceType) {
+      setError("Pick a service type first — otherwise there's nothing to write about.");
+      return;
+    }
     setGenerating(true);
     setError(null);
     setSavedMsg(null);
     try {
-      const res = await fetch(`/api/projects/${project.id}/generate-content`, { method: "POST" });
+      const res = await fetch(`/api/projects/${project.id}/generate-content`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Use whatever's currently selected on screen, not the last-saved
+        // value in the database — this is what was making Generate ignore
+        // a service type you'd just picked but not saved yet.
+        body: JSON.stringify({
+          overrides: { service_type: serviceType, ...basics },
+        }),
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Generation failed");
       const c = json.content;
@@ -90,9 +103,6 @@ export default function EditProjectForm({ project }: Props) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? `Save failed (${res.status})`);
-      // Go back to the imports list so the change is obviously visible —
-      // staying on this page after a save gave no clear sign anything
-      // actually happened.
       router.push("/admin/imports?saved=1");
       router.refresh();
     } catch (e) {
