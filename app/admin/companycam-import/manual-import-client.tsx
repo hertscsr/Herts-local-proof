@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CCProjectSummary, CCPhoto } from "@/lib/companycam";
 
@@ -18,6 +18,7 @@ export default function ManualImportClient({ draftProjects }: { draftProjects: D
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<CCProjectSummary[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const [selectedProject, setSelectedProject] = useState<CCProjectSummary | null>(null);
   const [photos, setPhotos] = useState<CCPhoto[]>([]);
@@ -31,24 +32,57 @@ export default function ManualImportClient({ draftProjects }: { draftProjects: D
   const [importError, setImportError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<string | null>(null);
 
-  async function search(e: React.FormEvent) {
-    e.preventDefault();
-    if (!query.trim()) return;
+  // Track the latest fired request so a slow earlier response can't clobber
+  // a faster later one (classic race when typing fast + debouncing).
+  const requestId = useRef(0);
+
+  async function runSearch(q: string) {
+    if (!q.trim()) return;
+    const thisRequest = ++requestId.current;
     setSearching(true);
     setSearchError(null);
-    setSelectedProject(null);
-    setPhotos([]);
     try {
-      const res = await fetch(`/api/companycam/search?q=${encodeURIComponent(query.trim())}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Search failed");
+      const res = await fetch(`/api/companycam/search?q=${encodeURIComponent(q.trim())}`);
+      const text = await res.text();
+      let json: any = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Search failed (bad response from server): ${text.slice(0, 200)}`);
+      }
+      if (!res.ok) throw new Error(json.error ?? `Search failed (${res.status})`);
+      if (thisRequest !== requestId.current) return; // a newer search already replaced this one
       setResults(json.projects ?? []);
     } catch (e) {
+      if (thisRequest !== requestId.current) return;
       setSearchError(e instanceof Error ? e.message : "Search failed");
     } finally {
-      setSearching(false);
+      if (thisRequest === requestId.current) {
+        setSearching(false);
+        setHasSearched(true);
+      }
     }
   }
+
+  function search(e: React.FormEvent) {
+    e.preventDefault();
+    void runSearch(query);
+  }
+
+  // Live address/name suggestions as you type, so you can pick a job from a
+  // dropdown instead of typing the whole thing and hitting Search — the
+  // Search button still works for a deliberate one-off lookup.
+  useEffect(() => {
+    if (selectedProject) return; // don't re-suggest once a job is picked
+    if (!query.trim() || query.trim().length < 3) {
+      setResults([]);
+      setHasSearched(false);
+      return;
+    }
+    const timer = setTimeout(() => void runSearch(query), 350);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, selectedProject]);
 
   async function pickProject(p: CCProjectSummary) {
     setSelectedProject(p);
@@ -118,7 +152,7 @@ export default function ManualImportClient({ draftProjects }: { draftProjects: D
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by address, customer name, or job title"
+          placeholder="Start typing an address or customer name — a list to pick from will show up"
           className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
         />
         <button
@@ -130,6 +164,12 @@ export default function ManualImportClient({ draftProjects }: { draftProjects: D
         </button>
       </form>
       {searchError && <p className="text-sm text-red-600">{searchError}</p>}
+
+      {!searching && hasSearched && !searchError && results.length === 0 && !selectedProject && (
+        <p className="text-sm text-slate-500">
+          No CompanyCam jobs matched "{query.trim()}". Try just the street name or the customer's last name.
+        </p>
+      )}
 
       {results.length > 0 && !selectedProject && (
         <div className="space-y-2">

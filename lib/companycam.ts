@@ -45,13 +45,18 @@ function simplifyProject(p: any): CCProjectSummary {
 }
 
 export async function listCompanyCamProjects(query?: string): Promise<CCProjectSummary[]> {
+  // CompanyCam has no separate /projects/search endpoint — filtering by
+  // name/address is done via the ?query= param on the main /projects list.
   const url = query
-    ? `${BASE}/projects/search?query=${encodeURIComponent(query)}&per_page=25`
+    ? `${BASE}/projects?query=${encodeURIComponent(query)}&per_page=25`
     : `${BASE}/projects?per_page=25`;
   const res = await fetch(url, { headers: headers(), cache: "no-store" });
-  if (!res.ok) throw new Error(`CompanyCam list failed: ${res.status}`);
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => "");
+    throw new Error(`CompanyCam list failed: ${res.status} ${bodyText.slice(0, 200)}`);
+  }
   const json = await res.json();
-  return (json.data ?? json ?? []).map(simplifyProject);
+  return (Array.isArray(json) ? json : json.data ?? []).map(simplifyProject);
 }
 
 export async function getCompanyCamProject(id: string) {
