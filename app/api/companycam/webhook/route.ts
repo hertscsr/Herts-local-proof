@@ -1,77 +1,255 @@
 import { NextRequest, NextResponse } from "next/server";
-import { importCompanyCamProject, removeDraftOnLabelRemoved } from "@/lib/import-companycam";
+import {
+  importCompanyCamProject,
+  removeDraftOnLabelRemoved,
+} from "@/lib/import-companycam";
+import {
+  companyCamLog,
+  getErrorMessage,
+} from "@/lib/companycam-logger";
 
-/**
- * Receives CompanyCam webhook events. Subscribed to project label events —
- * when a project gets tagged "Hertsworks" in CompanyCam, this pulls it into
- * Supabase as a draft LocalProof project (see lib/import-companycam.ts for
- * the label → service_type mapping and photo import logic). "Hertsworks" is
- * a dedicated trigger label — it doesn't need to mean anything else, it's
- * just the on-switch for "send this to the website." Tag the project with
- * its service label (e.g. "Roof replacement") too, so the import knows
- * which service_type to use.
- *
- * Protected by a shared secret in the URL query string rather than
- * signature verification, since CompanyCam's exact signing header wasn't
- * confirmed at build time — this route's URL should be treated as a
- * credential (don't post it publicly) and rotated via COMPANYCAM_WEBHOOK_SECRET
- * if it ever leaks.
- */
 export async function POST(req: NextRequest) {
+  const requestId = crypto.randomUUID();
+
+  /*
+   * ---------------------------------------------------------
+   * AUTHENTICATION
+   * ---------------------------------------------------------
+   */
   const secret = req.nextUrl.searchParams.get("secret");
-  if (!process.env.COMPANYCAM_WEBHOOK_SECRET || secret !== process.env.COMPANYCAM_WEBHOOK_SECRET) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const expectedSecret = process.env.COMPANYCAM_WEBHOOK_SECRET;
+
+  if (!expectedSecret || secret !== expectedSecret) {
+    companyCamLog.warn("webhook.unauthorized", {
+      requestId,
+    });
+
+    return NextResponse.json(
+      {
+        ok: false,
+        requestId,
+        error: "unauthorized",
+      },
+      { status: 401 }
+    );
   }
 
-  const body = await req.json().catch(() => null);
-  if (!body) return NextResponse.json({ ok: true }); // ignore malformed pings
+  /*
+   * ---------------------------------------------------------
+   * PARSE BODY
+   * ---------------------------------------------------------
+   */
+  let body: any;
 
-  // Log every delivery so real payload shapes are visible in Vercel's
-  // function logs if CompanyCam ever changes something here.
-  console.log("CompanyCam webhook payload", JSON.stringify(body));
+  try {
+    body = await req.json();
+  } catch (error) {
+    companyCamLog.warn("webhook.invalid_json", {
+      requestId,
+      error: getErrorMessage(error),
+    });
 
-  // Confirmed real envelope from a live delivery (Vercel logs):
-  // { event_type: "project.label_added", created_at, payload: { project: {...}, label: {...} }, webhook_id }
-  // — project id is nested under payload.project.id, and the label that was
-  // just added is a single object at payload.label, not an array.
-  const projectId: string | undefined = body.payload?.project?.id;
-  const label = body.payload?.label;
-  const labelValue: string = (label?.display_value ?? label?.value ?? "").toLowerCase();
+    // CompanyCam may occasionally send a malformed/test ping.
+    return NextResponse.json({
+      ok: true,
+      requestId,
+      skipped: true,
+      reason: "invalid JSON payload",
+    });
+  }
 
+  const eventType: string | undefined = body?.event_type;
+  const project = body?.payload?.project;
+  const label = body?.payload?.label;
+
+  const projectId: string | undefined = project?.id;
+
+  const labelValue = String(
+    label?.display_value ?? label?.value ?? ""
+  )
+    .trim()
+    .toLowerCase();
+
+  /*
+   * ---------------------------------------------------------
+   * CLEAN WEBHOOK LOG
+   * ---------------------------------------------------------
+   *
+   * Do NOT dump the entire CompanyCam payload into Vercel.
+   */
+  companyCamLog.info("webhook.received", {
+    requestId,
+    eventType,
+    webhookId: body?.webhook_id ?? null,
+
+    projectId: projectId ?? null,
+    projectName: project?.name ?? null,
+
+    label: label?.display_value ?? label?.value ?? null,
+
+    companyCamPhotoCount: project?.photo_count ?? null,
+
+    city: project?.address?.city ?? null,
+    state: project?.address?.state ?? null,
+  });
+
+  /*
+   * Optional full payload debugging.
+   *
+   * Keep COMPANYCAM_DEBUG=false in production normally.
+   */
+  if (process.env.COMPANYCAM_DEBUG === "true") {
+    companyCamLog.info("webhook.debug_payload", {
+      requestId,
+      payload: body,
+    });
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * PROJECT ID VALIDATION
+   * ---------------------------------------------------------
+   */
   if (!projectId) {
-    return NextResponse.json({ ok: true, skipped: "no project id in payload" });
+    companyCamLog.warn("webhook.skipped", {
+      requestId,
+      reason: "missing_project_id",
+      eventType,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      requestId,
+      skipped: true,
+      reason: "no project id in payload",
+    });
   }
 
-  // Taking the "Hertsworks" label back off cleans up a draft that was never
-  // published — stops the imports list from filling up with jobs you
-  // decided not to send to the website after all. Published projects are
-  // left untouched (see removeDraftOnLabelRemoved).
-  if (body.event_type === "project.label_removed" && labelValue === "hertsworks") {
+  /*
+   * ---------------------------------------------------------
+   * HERTSWORKS REMOVED
+   * ---------------------------------------------------------
+   */
+  if (
+    eventType === "project.label_removed" &&
+    labelValue === "hertsworks"
+  ) {
+    companyCamLog.info("draft_cleanup.started", {
+      requestId,
+      projectId,
+    });
+
     try {
       const result = await removeDraftOnLabelRemoved(projectId);
-      return NextResponse.json({ ok: true, result });
-    } catch (e) {
-      console.error("CompanyCam draft cleanup failed", e);
+
+      companyCamLog.info("draft_cleanup.complete", {
+        requestId,
+        projectId,
+        ...result,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        requestId,
+        action: "draft_cleanup",
+        result,
+      });
+    } catch (error) {
+      companyCamLog.error("draft_cleanup.failed", {
+        requestId,
+        projectId,
+        error: getErrorMessage(error),
+      });
+
       return NextResponse.json(
-        { error: e instanceof Error ? e.message : "cleanup failed" },
+        {
+          ok: false,
+          requestId,
+          error: getErrorMessage(error),
+        },
         { status: 500 }
       );
     }
   }
 
-  // Only import when the label that was just added is "Hertsworks" —
-  // that's the dedicated on-switch. Ignores unrelated label/tag changes.
-  if (labelValue !== "hertsworks") {
-    return NextResponse.json({ ok: true, skipped: `label "${labelValue}" is not "Hertsworks"` });
+  /*
+   * ---------------------------------------------------------
+   * ONLY HERTSWORKS TRIGGERS IMPORT
+   * ---------------------------------------------------------
+   */
+  if (
+    eventType !== "project.label_added" ||
+    labelValue !== "hertsworks"
+  ) {
+    companyCamLog.info("webhook.skipped", {
+      requestId,
+      projectId,
+      eventType,
+      label: labelValue || null,
+      reason: "not_hertsworks_trigger",
+    });
+
+    return NextResponse.json({
+      ok: true,
+      requestId,
+      skipped: true,
+      reason: "event does not trigger LocalProof import",
+    });
   }
 
+  /*
+   * ---------------------------------------------------------
+   * IMPORT
+   * ---------------------------------------------------------
+   */
+  companyCamLog.info("import.started", {
+    requestId,
+    projectId,
+    projectName: project?.name ?? null,
+    expectedPhotos: project?.photo_count ?? null,
+  });
+
   try {
-    const result = await importCompanyCamProject(projectId);
-    return NextResponse.json({ ok: true, result });
-  } catch (e) {
-    console.error("CompanyCam import failed", e);
+    const result = await importCompanyCamProject(
+      projectId,
+      requestId
+    );
+
+    companyCamLog.info("import.complete", {
+      requestId,
+      companyCamProjectId: projectId,
+      localProjectId: result.projectId,
+
+      status: result.status,
+
+      serviceType: result.serviceType,
+      serviceMatched: result.matched,
+
+      photosFound: result.totalPhotos,
+      photosImported: result.importedCount,
+      photosAlreadyImported: result.alreadyImportedCount,
+      photosFailed: result.failedCount,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      requestId,
+      result,
+    });
+  } catch (error) {
+    companyCamLog.error("import.failed", {
+      requestId,
+      projectId,
+      error: getErrorMessage(error),
+    });
+
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "import failed" },
+      {
+        ok: false,
+        requestId,
+        projectId,
+        error: getErrorMessage(error),
+      },
       { status: 500 }
     );
   }
