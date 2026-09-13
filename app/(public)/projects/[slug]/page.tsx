@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
+import LeadForm from "./lead-form";
+import PhotoGallery from "./photo-gallery";
+import TrackPageView from "./track-page-view";
 
 export const revalidate = 3600; // ISR: re-render at most hourly, or on-demand via revalidatePath on publish
 
@@ -16,6 +19,31 @@ async function getProject(slug: string) {
     .eq("slug", slug)
     .single();
   return data;
+}
+
+async function getPhotos(projectId: string) {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("photos")
+    .select("id, storage_path, phase, caption, alt_text_final, alt_text_auto")
+    .eq("project_id", projectId)
+    .order("display_order", { ascending: true });
+
+  return (data ?? []).map((p) => ({
+    ...p,
+    url: supabase.storage.from("project-photos").getPublicUrl(p.storage_path).data.publicUrl,
+  }));
+}
+
+async function getReviews(projectId: string) {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("reviews")
+    .select("id, homeowner, rating, review, date")
+    .eq("project_id", projectId)
+    .eq("approved_for_website", true)
+    .order("date", { ascending: false });
+  return data ?? [];
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -38,6 +66,9 @@ export default async function ProjectPage({ params }: Props) {
   const project = await getProject(params.slug);
   if (!project) notFound();
 
+  const photos = await getPhotos(project.id);
+  const reviews = await getReviews(project.id);
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
@@ -58,6 +89,8 @@ export default async function ProjectPage({ params }: Props) {
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
+      <TrackPageView projectId={project.id} />
+
       {/* Structured data — server-rendered, present on first response */}
       <script
         type="application/ld+json"
@@ -94,10 +127,48 @@ export default async function ProjectPage({ params }: Props) {
         )}
       </section>
 
-      {/* TODO: photo gallery (before/during/after from `photos`, filtered by project_id),
-          homeowner review block, "nearby projects" carousel, FAQ accordion, and the
-          lead-capture CTA all read from data already modeled in the schema — wire up
-          once the design pass on these sections is done. */}
+      {photos.length > 0 && (
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold">Project Photos</h2>
+          <PhotoGallery photos={photos} projectId={project.id} />
+        </section>
+      )}
+
+      {project.faq && project.faq.length > 0 && (
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold">Frequently Asked Questions</h2>
+          <div className="mt-4 space-y-4">
+            {project.faq.map((item: { question: string; answer: string }, i: number) => (
+              <div key={i}>
+                <div className="font-medium">{item.question}</div>
+                <p className="mt-1 text-slate-600">{item.answer}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {reviews.length > 0 && (
+        <section className="mt-10">
+          <h2 className="text-xl font-semibold">What the Homeowner Said</h2>
+          <div className="mt-4 space-y-4">
+            {reviews.map((r) => (
+              <div key={r.id} className="rounded border border-slate-200 p-4">
+                <div className="text-amber-500">{"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}</div>
+                <p className="mt-1 text-slate-700">{r.review}</p>
+                <div className="mt-1 text-sm text-slate-500">{r.homeowner}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="mt-10">
+        <LeadForm projectId={project.id} serviceType={project.service_type} />
+      </div>
+
+      {/* TODO: "nearby projects" carousel reads from data already modeled
+          in the schema — wire up once the design pass on this section is done. */}
     </main>
   );
 }

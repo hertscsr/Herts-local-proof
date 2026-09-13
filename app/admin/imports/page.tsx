@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import PublishButton from "./publish-button";
+import UnpublishButton from "./unpublish-button";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,16 @@ export default async function ImportsPage() {
                 Service type couldn&apos;t be matched from CompanyCam labels — verify it&apos;s correct before publishing.
               </div>
             )}
-            {p.publication_status !== "published" && <PublishButton projectId={p.id} />}
+            <div className="mt-3 flex flex-wrap gap-3">
+              <a
+                href={`/admin/imports/${p.id}`}
+                className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+              >
+                Edit content
+              </a>
+              {p.publication_status !== "published" && <PublishButton projectId={p.id} />}
+              {p.publication_status === "published" && <UnpublishButton projectId={p.id} />}
+            </div>
           </div>
         ))}
 

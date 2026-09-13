@@ -1,9 +1,17 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic"; // always fresh — this is an internal dashboard, not an SEO page
 
+const WINDOW_DAYS = 30;
+
 async function getStats() {
-  const supabase = createClient();
+  // Was using the anon (RLS-scoped) client before — that silently broke
+  // several of these counts, since anon can't see unpublished projects or
+  // any leads/reviews at all (there's no real Supabase Auth session behind
+  // this admin panel's login, so the "staff" RLS policies never matched).
+  // Every other admin page uses the service-role admin client; this one
+  // should too.
+  const supabase = createAdminClient();
 
   const [
     { count: totalProjects },
@@ -31,8 +39,69 @@ async function getStats() {
   };
 }
 
+async function getAnalytics() {
+  const supabase = createAdminClient();
+  const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const [{ data: events }, { data: leads }, { data: projects }] = await Promise.all([
+    supabase.from("events").select("event_type, project_id").gte("timestamp", since),
+    supabase
+      .from("leads")
+      .select("id, project_id_that_generated_lead")
+      .gte("date", since.slice(0, 10)),
+    supabase.from("projects").select("id, customer_name, city, state, slug"),
+  ]);
+
+  const projectById = new Map((projects ?? []).map((p) => [p.id, p]));
+
+  const totals = { page_view: 0, gallery_view: 0, cta_click: 0, map_pin_click: 0 };
+  const byProject = new Map<
+    string,
+    { page_view: number; gallery_view: number; cta_click: number; map_pin_click: number; leads: number }
+  >();
+
+  function bucket(projectId: string) {
+    if (!byProject.has(projectId)) {
+      byProject.set(projectId, { page_view: 0, gallery_view: 0, cta_click: 0, map_pin_click: 0, leads: 0 });
+    }
+    return byProject.get(projectId)!;
+  }
+
+  for (const e of events ?? []) {
+    if (e.event_type in totals) {
+      totals[e.event_type as keyof typeof totals]++;
+    }
+    if (e.project_id && e.event_type !== "lead_submit") {
+      const b = bucket(e.project_id);
+      if (e.event_type in b) {
+        (b as unknown as Record<string, number>)[e.event_type]++;
+      }
+    }
+  }
+
+  let totalLeadsInWindow = 0;
+  for (const lead of leads ?? []) {
+    if (lead.project_id_that_generated_lead) {
+      bucket(lead.project_id_that_generated_lead).leads++;
+    }
+    totalLeadsInWindow++;
+  }
+
+  const topProjects = Array.from(byProject.entries())
+    .map(([projectId, stats]) => ({
+      project: projectById.get(projectId),
+      ...stats,
+      conversionRate: stats.page_view > 0 ? (stats.leads / stats.page_view) * 100 : 0,
+    }))
+    .filter((row) => row.project)
+    .sort((a, b) => b.page_view - a.page_view)
+    .slice(0, 10);
+
+  return { totals, totalLeadsInWindow, topProjects };
+}
+
 export default async function DashboardPage() {
-  const stats = await getStats();
+  const [stats, analytics] = await Promise.all([getStats(), getAnalytics()]);
 
   const tiles = [
     { label: "Total Projects", value: stats.totalProjects },
@@ -42,6 +111,9 @@ export default async function DashboardPage() {
     { label: "Published Stories", value: stats.publishedStories },
     { label: "Leads Generated", value: stats.leadsGenerated },
   ];
+
+  const overallConversion =
+    analytics.totals.page_view > 0 ? (analytics.totalLeadsInWindow / analytics.totals.page_view) * 100 : 0;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
@@ -64,11 +136,76 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      {/* TODO: top cities, top services, most viewed projects (from `events`),
-          projects generating leads, avg rating, review request performance,
-          and the sitemap_status indexing breakdown (see SPEC.md section 5)
-          all pull from tables already in the schema — add query + chart per
-          metric once the dashboard layout is finalized. */}
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold">Last {WINDOW_DAYS} days</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          What&apos;s actually driving calls — page views, map clicks, and estimate requests per
+          project, straight from the site&apos;s own visitor tracking (not Google Analytics).
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="rounded-lg border border-slate-200 p-4">
+            <div className="text-2xl font-bold">{analytics.totals.page_view}</div>
+            <div className="text-sm text-slate-500">Project page views</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-4">
+            <div className="text-2xl font-bold">{analytics.totals.map_pin_click}</div>
+            <div className="text-sm text-slate-500">Map pin clicks</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-4">
+            <div className="text-2xl font-bold">{analytics.totalLeadsInWindow}</div>
+            <div className="text-sm text-slate-500">Leads submitted</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-4">
+            <div className="text-2xl font-bold">{overallConversion.toFixed(1)}%</div>
+            <div className="text-sm text-slate-500">View → lead rate</div>
+          </div>
+        </div>
+
+        {analytics.topProjects.length > 0 ? (
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="py-2 pr-4">Project</th>
+                  <th className="py-2 pr-4">Views</th>
+                  <th className="py-2 pr-4">Gallery</th>
+                  <th className="py-2 pr-4">Map clicks</th>
+                  <th className="py-2 pr-4">CTA clicks</th>
+                  <th className="py-2 pr-4">Leads</th>
+                  <th className="py-2 pr-4">Conversion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analytics.topProjects.map((row) => (
+                  <tr key={row.project!.id} className="border-b border-slate-100">
+                    <td className="py-2 pr-4">
+                      <a href={`/projects/${row.project!.slug}`} className="text-brand-accent underline">
+                        {row.project!.customer_name} — {row.project!.city}, {row.project!.state}
+                      </a>
+                    </td>
+                    <td className="py-2 pr-4">{row.page_view}</td>
+                    <td className="py-2 pr-4">{row.gallery_view}</td>
+                    <td className="py-2 pr-4">{row.map_pin_click}</td>
+                    <td className="py-2 pr-4">{row.cta_click}</td>
+                    <td className="py-2 pr-4">{row.leads}</td>
+                    <td className="py-2 pr-4">{row.conversionRate.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-slate-500">
+            No visitor activity tracked yet in the last {WINDOW_DAYS} days.
+          </p>
+        )}
+      </div>
+
+      {/* TODO: top cities, top services, avg rating, review request
+          performance, and the sitemap_status indexing breakdown (see
+          SPEC.md section 5) still pull from tables already in the schema —
+          add once needed. */}
     </main>
   );
 }

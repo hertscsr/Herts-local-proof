@@ -30,6 +30,11 @@ export type UserRole =
   | "field_crew"
   | "marketing_manager";
 
+export interface FaqItem {
+  question: string;
+  answer: string;
+}
+
 export interface Project {
   id: string;
   customer_name: string;
@@ -64,6 +69,13 @@ export interface Project {
   meta_description: string | null;
   target_keyword: string | null;
   canonical_url: string | null;
+  page_title: string | null;
+  h1: string | null;
+  introduction: string | null;
+  project_challenge: string | null;
+  solution: string | null;
+  materials_used: string | null;
+  faq: FaqItem[] | null;
   sitemap_status: "not_submitted" | "submitted" | "indexed" | "needs_recheck";
   last_gsc_check: string | null;
   created_at: string;
@@ -84,12 +96,17 @@ export interface Photo {
 
 export interface Review {
   id: string;
-  project_id: string;
+  project_id: string | null; // null until matched/assigned to a job site
   homeowner: string;
   rating: number; // 1-5
   review: string;
   source: "manual" | "google" | "facebook";
   import_source_id: string | null;
+  google_review_id: string | null;
+  reviewer_photo_url: string | null;
+  match_status: "matched" | "unmatched" | "manual";
+  reply_text: string | null;
+  reply_posted_at: string | null;
   date: string;
   approved_for_website: boolean;
 }

@@ -92,6 +92,27 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ project: updated });
   }
 
+  if (body.action === "unpublish") {
+    // Pulls a project back off the public site. Leaves all its data (photos,
+    // coordinates, story fields) intact — just flips the status back so it
+    // shows up in /admin/imports again for fixing before it goes live again.
+    const { data: updated, error: updateError } = await supabase
+      .from("projects")
+      .update({
+        publication_status: "unpublished",
+        project_status: "unpublished",
+      })
+      .eq("id", params.id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ project: updated });
+  }
+
   // Normal partial update — only allow known columns through, never trust
   // the client to send arbitrary fields (id, timestamps, etc. stay fixed).
   const allowed = [
