@@ -1,22 +1,5 @@
 import type { Project, FaqItem } from "@/types/database";
 import { generateText } from "@/lib/ai";
-
-/**
- * Uses Claude to draft the "story" content for a project page (introduction,
- * challenge, solution, materials used, and a short FAQ) from what's already
- * on the project row — service type, address, manufacturer/product, and
- * whatever description came over from CompanyCam. This is a FIRST DRAFT
- * only: nothing here gets saved automatically. It always comes back to the
- * admin editor screen for a human to read, fix, and explicitly save before
- * it can be published.
- *
- * Doesn't look at the actual photos (no vision call) — keeps this fast,
- * cheap, and reliable. The written content stays generic-but-accurate
- * (service type + location + materials), which is normally enough for a
- * page like this; if you want photo-specific detail, add it by hand after
- * generating.
- */
-
 export interface GeneratedContent {
   page_title: string;
   h1: string;
@@ -28,54 +11,277 @@ export interface GeneratedContent {
   faq: FaqItem[];
 }
 
+interface ServiceConfig {
+  label: string;
+  pageNoun: string;
+  instructions: string;
+}
+
+const SERVICE_CONFIG: Record<string, ServiceConfig> = {
+  roof_replacement: {
+    label: "Roof Replacement",
+    pageNoun: "roof replacement",
+    instructions:
+      "Write only about roof replacement work supported by the project facts. Do not mention decks, siding, gutters, windows, chimneys, or storm damage unless the project notes explicitly say they were part of this job.",
+  },
+
+  roof_repair: {
+    label: "Roof Repair",
+    pageNoun: "roof repair",
+    instructions:
+      "Focus specifically on roof repair. Do not describe this as a complete roof replacement unless the project facts say the entire roof was replaced.",
+  },
+
+  storm_damage: {
+    label: "Storm Damage Restoration",
+    pageNoun: "storm damage restoration project",
+    instructions:
+      "Focus on storm restoration. Only mention wind, hail, fallen trees, insurance claims, or specific storm damage when explicitly supported by the project facts.",
+  },
+
+  siding: {
+    label: "Siding Installation",
+    pageNoun: "siding project",
+    instructions:
+      "The entire page must focus on siding. Do not describe this as a roofing project. Do not invent siding damage, house wrap, insulation, manufacturer, or product specifications.",
+  },
+
+  gutters: {
+    label: "Gutter Installation",
+    pageNoun: "gutter project",
+    instructions:
+      "The entire page must focus on gutters. Do not turn this into a roofing project. Do not invent gutter sizes, gutter guards, drainage problems, or downspout configurations.",
+  },
+
+  windows: {
+    label: "Window Installation",
+    pageNoun: "window project",
+    instructions:
+      "The entire page must focus on window installation or replacement. Do not write a roofing page. Do not invent window brands, efficiency ratings, glass packages, or damage.",
+  },
+
+  deck_construction: {
+    label: "Deck Construction",
+    pageNoun: "deck construction project",
+    instructions:
+      "The entire page must focus on deck construction. The title, H1, introduction, challenge, solution, materials, and FAQs must be about the deck. Do not mention roofing, shingles, roof leaks, ventilation, flashing, or roof replacement unless explicitly included in the project facts.",
+  },
+
+  composite_deck: {
+    label: "Composite Deck Installation",
+    pageNoun: "composite deck project",
+    instructions:
+      "The entire page must focus on the composite deck. Use the manufacturer, product line, and color only when provided. Do not describe this as a roofing project and do not invent a decking manufacturer.",
+  },
+
+  chimney: {
+    label: "Chimney Project",
+    pageNoun: "chimney project",
+    instructions:
+      "Keep the entire page focused on the chimney work described in the project facts. Do not turn it into a general roofing page or invent masonry damage, leaks, flashing failures, or chimney components.",
+  },
+};
+
+function getServiceConfig(
+  serviceType: string | null | undefined
+): ServiceConfig {
+  if (!serviceType) {
+    return {
+      label: "Service Not Confirmed",
+      pageNoun: "construction project",
+      instructions:
+        "The service type has not been confirmed. Do not assume this is roofing. Use only the supplied project facts and keep the wording neutral.",
+    };
+  }
+
+  return (
+    SERVICE_CONFIG[serviceType] ?? {
+      label: serviceType.replace(/_/g, " "),
+      pageNoun: serviceType.replace(/_/g, " "),
+      instructions: `Use "${serviceType.replace(
+        /_/g,
+        " "
+      )}" as the primary subject of the page. Do not automatically describe the project as roofing.`,
+    }
+  );
+}
+
 function buildPrompt(project: Project): string {
-  const service = project.service_type?.replace(/_/g, " ") ?? "roofing";
-  const location = [project.city, project.state].filter(Boolean).join(", ");
-  const materialLine = [project.manufacturer, project.product, project.product_line, project.product_color]
+  const service = getServiceConfig(project.service_type);
+
+  const location = [project.city, project.state]
+    .filter(Boolean)
+    .join(", ");
+
+  const materials = [
+    project.manufacturer,
+    project.product,
+    project.product_line,
+    project.product_color,
+  ]
     .filter(Boolean)
     .join(" ");
 
-  return `You are writing website content for Herts Roofing & Construction, a licensed roofing/siding/decking contractor, describing one completed customer project for their local-SEO project gallery.
+  const notes =
+    project.project_description?.trim() || "(none provided)";
 
-Project facts (this is everything you know — use only these):
-- Service: ${service}
-- Location: ${location || "New Jersey"}
-- Materials/product: ${materialLine || "not specified"}
-- Raw notes from the field team (may be empty or messy): ${project.project_description ?? "(none provided)"}
+  return `
+You are writing a completed-project page for Herts Roofing & Construction.
 
-Only describe project conditions, problems, damage, materials, products and work that are explicitly supported by the supplied project data. Never invent damage, leaks, storm events, deterioration, code violations, structural problems, materials, manufacturer products, warranties, customer quotes, reviews or project outcomes. When details are unavailable, use neutral language (for example: general wear consistent with the age of the ${service} system, or a straightforward ${service} project) instead of inventing a specific cause. Do not invent exact dates, prices, or homeowner names.
+IMPORTANT:
+Herts Roofing & Construction performs multiple exterior construction services.
+The word "Roofing" in the company name DOES NOT mean every project is a roofing project.
 
-Write plain, direct, non-salesy contractor copy — a homeowner reading this should recognize their own situation, not feel marketed at. No AI-sounding filler words (delve, boast, robust, tapestry, testament, underscore, pivotal, meticulous, elevate), no em dashes, no exclamation points, no generic superlatives ("top-notch", "unparalleled"). Short sentences. Write like a person who actually did the work is describing it.
+CONFIRMED SERVICE TYPE:
+${service.label}
 
-Return ONLY a JSON object, no markdown fences, no commentary, matching exactly this shape:
+PRIMARY SUBJECT:
+${service.pageNoun}
+
+SERVICE-SPECIFIC RULE:
+${service.instructions}
+
+PROJECT FACTS:
+
+Service:
+${service.label}
+
+Location:
+${location || "Location not specified"}
+
+Materials / manufacturer / product:
+${materials || "Not specified"}
+
+Field notes:
+${notes}
+
+ACCURACY RULES:
+
+Use ONLY information supported by the project facts above.
+
+Never invent:
+- damage
+- roof leaks
+- storms
+- hail
+- wind damage
+- deterioration
+- structural problems
+- code violations
+- permit issues
+- materials
+- manufacturers
+- product lines
+- warranties
+- customer quotes
+- reviews
+- prices
+- dates
+- homeowner names
+- project outcomes
+
+If information is unavailable, keep the wording general.
+
+Do NOT invent a problem just to make the Project Challenge section interesting.
+
+SERVICE CONSISTENCY:
+
+Every section must remain focused on "${service.label}".
+
+The page title, H1, meta description, introduction, challenge, solution,
+materials and FAQs must all match the confirmed service type.
+
+If this is Deck Construction, write a DECK page.
+If this is Composite Deck Installation, write a COMPOSITE DECK page.
+If this is Siding Installation, write a SIDING page.
+If this is Gutter Installation, write a GUTTER page.
+If this is Window Installation, write a WINDOW page.
+Only write roofing content when the confirmed service is actually roofing.
+
+WRITING STYLE:
+
+Write like a contractor describing a real completed project.
+
+Use:
+- plain English
+- short sentences
+- homeowner-friendly explanations
+- natural contractor terminology
+- factual descriptions
+
+Avoid:
+- AI filler
+- exaggerated sales language
+- keyword stuffing
+- exclamation points
+- em dashes
+- top-notch
+- unparalleled
+- meticulous
+- elevate
+- delve
+- robust
+- testament
+
+LOCAL SEO:
+
+Naturally include the service and location in the page title and H1.
+Do not create fake location information.
+
+OUTPUT:
+
+Return ONLY valid JSON.
+No Markdown.
+No code fences.
+No commentary.
+
+Use exactly this structure:
+
 {
-  "page_title": "under 60 characters, includes the service and location",
-  "h1": "a short human headline for the page, under 70 characters",
-  "meta_description": "under 155 characters, plain description for search results",
-  "introduction": "2-3 sentences setting up who the homeowner was and what they needed",
-  "project_challenge": "2-4 sentences on the situation found on this job, grounded only in the facts given above — if the raw notes don't specify a cause, describe it in neutral, general terms rather than inventing one",
-  "solution": "2-4 sentences on what Herts did, mentioning the materials/product only if given above",
-  "materials_used": "1-2 sentences naming the materials/product used, or a brief neutral line if none were specified",
+  "page_title": "under 60 characters, focused on ${service.label} and the location",
+  "h1": "human project headline under 70 characters focused on ${service.label}",
+  "meta_description": "under 155 characters describing this ${service.label} project",
+  "introduction": "2-3 sentences introducing this ${service.pageNoun}",
+  "project_challenge": "2-4 sentences describing the situation using only known facts",
+  "solution": "2-4 sentences describing what Herts did for this ${service.pageNoun}",
+  "materials_used": "1-2 sentences describing known materials or stating that specific material details were not provided",
   "faq": [
-    {"question": "a real question a homeowner in this situation would ask", "answer": "a 1-2 sentence direct answer, grounded only in the facts above"},
-    {"question": "a second, different question", "answer": "a 1-2 sentence direct answer, grounded only in the facts above"},
-    {"question": "a third, different question", "answer": "a 1-2 sentence direct answer, grounded only in the facts above"}
+    {
+      "question": "a homeowner question specifically about ${service.label}",
+      "answer": "1-2 sentence factual answer"
+    },
+    {
+      "question": "a second homeowner question specifically about ${service.label}",
+      "answer": "1-2 sentence factual answer"
+    },
+    {
+      "question": "a third homeowner question specifically about ${service.label}",
+      "answer": "1-2 sentence factual answer"
+    }
   ]
-}`;
+}
+`.trim();
 }
 
-export async function generateProjectContent(project: Project): Promise<GeneratedContent> {
-  const raw = await generateText(buildPrompt(project), { maxTokens: 1500, json: true });
+export async function generateProjectContent(
+  project: Project
+): Promise<GeneratedContent> {
+  const raw = await generateText(buildPrompt(project), {
+    maxTokens: 1500,
+    json: true,
+  });
 
-  // Strip stray markdown fences just in case the model adds them anyway.
-  const cleaned = raw.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+  const cleaned = raw
+    .trim()
+    .replace(/^```(json)?/i, "")
+    .replace(/```$/, "")
+    .trim();
 
-  let parsed: GeneratedContent;
   try {
-    parsed = JSON.parse(cleaned);
+    return JSON.parse(cleaned) as GeneratedContent;
   } catch {
-    throw new Error("Couldn't parse the generated content as JSON — try again.");
+    throw new Error(
+      "Couldn't parse the generated content as JSON. Please try again."
+    );
   }
-
-  return parsed;
 }
