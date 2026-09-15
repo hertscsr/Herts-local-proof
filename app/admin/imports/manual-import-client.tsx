@@ -274,7 +274,17 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
                       }`}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={photo.original_url ?? undefined} alt="" className="h-full w-full object-cover" />
+                      {photo.original_url ? (
+                        <img
+                          src={photo.original_url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-slate-100 px-2 text-center text-xs text-slate-500">
+                          Photo unavailable
+                        </div>
+                      )}
                       {checked && (
                         <div className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand-accent text-xs text-white">
                           ✓
@@ -348,4 +358,3 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
     </div>
   );
 }
-
