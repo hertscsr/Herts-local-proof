@@ -274,7 +274,7 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
                       }`}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={photo.original_url} alt="" className="h-full w-full object-cover" />
+                      <img src={photo.original_url ?? undefined} alt="" className="h-full w-full object-cover" />
                       {checked && (
                         <div className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand-accent text-xs text-white">
                           ✓
@@ -348,3 +348,4 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
     </div>
   );
 }
+
