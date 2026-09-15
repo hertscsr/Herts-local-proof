@@ -163,8 +163,7 @@ export default function EditProjectForm({ project }: Props) {
         );
       }
 
-      router.push("/admin/imports?saved=1");
-      router.refresh();
+      router.replace("/admin/imports?saved=1");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
       setSaving(false);

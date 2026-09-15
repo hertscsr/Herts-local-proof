@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { MAX_LOCALPROOF_PHOTOS } from "@/lib/companycam";
 import type { CCProjectSummary, CCPhoto } from "@/lib/companycam";
 
 interface DraftProject {
@@ -15,7 +16,7 @@ interface Props {
   draftProjects: DraftProject[];
   /**
    * When set, this panel is scoped to one existing project (e.g. the "Add
-   * photos from CompanyCam" button on a single import row) — the "start a
+   * photos from CompanyCam" button on a single import row) - the "start a
    * new draft" choice and the "which draft" dropdown are hidden, and every
    * import goes straight onto this project.
    */
@@ -83,7 +84,7 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
   }
 
   // Live address/name suggestions as you type, so you can pick a job from a
-  // dropdown instead of typing the whole thing and hitting Search — the
+  // dropdown instead of typing the whole thing and hitting Search - the
   // Search button still works for a deliberate one-off lookup.
   useEffect(() => {
     if (selectedProject) return; // don't re-suggest once a job is picked
@@ -119,14 +120,22 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
   function togglePhoto(id: string) {
     setSelectedPhotoIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        return next;
+      }
+      if (next.size >= MAX_LOCALPROOF_PHOTOS) {
+        return prev;
+      }
+      next.add(id);
       return next;
     });
   }
 
   function selectAll() {
-    setSelectedPhotoIds(new Set(photos.map((p) => p.id)));
+    setSelectedPhotoIds(
+      new Set(photos.slice(0, MAX_LOCALPROOF_PHOTOS).map((p) => p.id))
+    );
   }
 
   function selectNone() {
@@ -135,6 +144,10 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
 
   async function doImport() {
     if (!selectedProject || selectedPhotoIds.size === 0) return;
+    if (selectedPhotoIds.size > MAX_LOCALPROOF_PHOTOS) {
+      setImportError(`Select no more than ${MAX_LOCALPROOF_PHOTOS} photos.`);
+      return;
+    }
     setImporting(true);
     setImportError(null);
     setImportResult(null);
@@ -177,7 +190,7 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Start typing an address or customer name — a list to pick from will show up"
+          placeholder="Start typing an address or customer name - a list to pick from will show up"
           className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
         />
         <button
@@ -185,7 +198,7 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
           disabled={searching}
           className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
-          {searching ? "Searching…" : "Search CompanyCam"}
+          {searching ? "Searching..." : "Search CompanyCam"}
         </button>
       </form>
       {searchError && <p className="text-sm text-red-600">{searchError}</p>}
@@ -214,7 +227,7 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
                 <div className="font-medium text-slate-900">{p.name || "(no name)"}</div>
                 <div className="text-sm text-slate-500">
                   {[p.address?.street_address_1, p.address?.city, p.address?.state].filter(Boolean).join(", ")}{" "}
-                  — {p.photo_count} photo{p.photo_count === 1 ? "" : "s"}
+                  - {p.photo_count} photo{p.photo_count === 1 ? "" : "s"}
                 </div>
               </div>
             </button>
@@ -244,17 +257,17 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
             </button>
           </div>
 
-          {loadingPhotos && <p className="mt-4 text-sm text-slate-500">Loading photos…</p>}
+          {loadingPhotos && <p className="mt-4 text-sm text-slate-500">Loading photos...</p>}
 
           {!loadingPhotos && photos.length > 0 && (
             <>
               <div className="mt-4 flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-700">
-                  {selectedPhotoIds.size} of {photos.length} selected
+                  {selectedPhotoIds.size} of {MAX_LOCALPROOF_PHOTOS} selected
                 </p>
                 <div className="flex gap-3 text-sm">
                   <button onClick={selectAll} className="text-brand-accent underline">
-                    Select all
+                    Select first {MAX_LOCALPROOF_PHOTOS}
                   </button>
                   <button onClick={selectNone} className="text-slate-500 underline">
                     Select none
@@ -332,7 +345,7 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
                         >
                           {draftProjects.map((d) => (
                             <option key={d.id} value={d.id}>
-                              {d.customer_name} — {d.city}, {d.state}
+                              {d.customer_name} - {d.city}, {d.state}
                             </option>
                           ))}
                         </select>
@@ -347,7 +360,7 @@ export default function ManualImportClient({ draftProjects, fixedTarget, onImpor
                 disabled={importing || selectedPhotoIds.size === 0}
                 className="mt-4 rounded-lg bg-brand-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
-                {importing ? "Importing…" : `Import ${selectedPhotoIds.size} photo${selectedPhotoIds.size === 1 ? "" : "s"}`}
+                {importing ? "Importing..." : `Import ${selectedPhotoIds.size} photo${selectedPhotoIds.size === 1 ? "" : "s"}`}
               </button>
               {importError && <p className="mt-2 text-sm text-red-600">{importError}</p>}
               {importResult && <p className="mt-2 text-sm text-emerald-700">{importResult}</p>}

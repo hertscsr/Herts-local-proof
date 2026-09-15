@@ -946,6 +946,7 @@ export async function importCompanyCamProject(
 export async function removeDraftOnLabelRemoved(
   ccProjectId: string
 ) {
+
   const supabase =
     createAdminClient();
 
@@ -1097,6 +1098,7 @@ export async function resyncServiceTypeFromCompanyCam(
   projectId: string,
   ccProject?: any
 ) {
+
   const supabase =
     createAdminClient();
 
@@ -1216,6 +1218,22 @@ export async function manualImportCompanyCamPhotos(
       | null;
   }
 ) {
+  const uniquePhotoIds = Array.from(
+    new Set(opts.photoIds.map(String))
+  );
+
+  if (uniquePhotoIds.length === 0) {
+    throw new Error("At least one photo is required.");
+  }
+
+  if (uniquePhotoIds.length > MAX_LOCALPROOF_PHOTOS) {
+    throw new Error(
+      `LocalProof allows a maximum of ${MAX_LOCALPROOF_PHOTOS} photos per manual import.`
+    );
+  }
+
+  opts.photoIds = uniquePhotoIds;
+
   const supabase =
     createAdminClient();
 
@@ -1679,6 +1697,7 @@ export async function manualImportCompanyCamPhotos(
  * administrative reset flow.
  */
 export async function clearAllImports() {
+
   const supabase =
     createAdminClient();
 
@@ -1796,3 +1815,4 @@ export async function clearAllImports() {
       paths.length,
   };
 }
+
