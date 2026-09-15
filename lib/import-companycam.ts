@@ -10,6 +10,8 @@ import {
   listCompanyCamPhotos,
   stripHtml,
   guessPhase,
+  hasLocalProofTag,
+  MAX_LOCALPROOF_PHOTOS,
 } from "@/lib/companycam";
 
 import { stripNeedsReviewMarker } from "@/lib/needs-review";
@@ -432,6 +434,31 @@ export async function importCompanyCamProject(
     throw error;
   }
 
+  const totalCompanyCamPhotos =
+    ccPhotos.length;
+
+  const localProofTaggedPhotos =
+    ccPhotos.filter(
+      (photo) =>
+        hasLocalProofTag(photo)
+    );
+
+  const localProofTaggedCount =
+    localProofTaggedPhotos.length;
+
+  /*
+   * Only CompanyCam photos tagged LocalProof are eligible for
+   * automatic LocalProof import. Hard-cap automatic selection at 5.
+   *
+   * Existing database photos are not deleted here. This keeps the
+   * sync non-destructive for projects imported before tag gating.
+   */
+  ccPhotos =
+    localProofTaggedPhotos.slice(
+      0,
+      MAX_LOCALPROOF_PHOTOS
+    );
+
   companyCamLog.info(
     "photos.sync_started",
     {
@@ -439,8 +466,22 @@ export async function importCompanyCamProject(
       companyCamProjectId:
         ccProjectId,
       projectId,
-      photosFound:
+      totalCompanyCamPhotos,
+      localProofTagged:
+        localProofTaggedCount,
+      selectedForLocalProof:
         ccPhotos.length,
+      maxLocalProofPhotos:
+        MAX_LOCALPROOF_PHOTOS,
+      skippedUntagged:
+        totalCompanyCamPhotos -
+        localProofTaggedCount,
+      skippedOverLimit:
+        Math.max(
+          0,
+          localProofTaggedCount -
+            MAX_LOCALPROOF_PHOTOS
+        ),
       alreadyInDatabase:
         alreadyImported.size,
     }
@@ -825,6 +866,12 @@ export async function importCompanyCamProject(
       status,
 
       totalPhotos:
+        totalCompanyCamPhotos,
+
+      localProofTagged:
+        localProofTaggedCount,
+
+      selectedForLocalProof:
         ccPhotos.length,
 
       imported:
@@ -871,7 +918,15 @@ export async function importCompanyCamProject(
     matched,
 
     totalPhotos:
+      totalCompanyCamPhotos,
+
+    localProofTaggedCount,
+
+    selectedForLocalProof:
       ccPhotos.length,
+
+    maxLocalProofPhotos:
+      MAX_LOCALPROOF_PHOTOS,
 
     importedCount,
     alreadyImportedCount,
