@@ -359,52 +359,44 @@ export async function importCompanyCamProject(
    */
 
   const {
-    data: existingPhotos,
-    error: existingPhotosError,
-  } = await supabase
-    .from("photos")
-    .select(
-      "companycam_photo_id"
-    )
-    .eq(
-      "project_id",
-      projectId
-    )
-    .not(
-      "companycam_photo_id",
-      "is",
-      null
-    );
+  data: existingPhotos,
+  error: existingPhotosError,
+} = await supabase
+  .from("photos")
+  .select("id, companycam_photo_id")
+  .eq("project_id", projectId);
 
-  if (existingPhotosError) {
-    companyCamLog.error(
-      "photos.lookup_failed",
-      {
-        requestId,
-        companyCamProjectId:
-          ccProjectId,
-        projectId,
-        error:
-          existingPhotosError.message,
-      }
-    );
+if (existingPhotosError) {
+  companyCamLog.error(
+    "photos.lookup_failed",
+    {
+      requestId,
+      companyCamProjectId:
+        ccProjectId,
+      projectId,
+      error:
+        existingPhotosError.message,
+    }
+  );
 
-    throw new Error(
-      existingPhotosError.message
-    );
-  }
+  throw new Error(
+    existingPhotosError.message
+  );
+}
 
-  const alreadyImported =
-    new Set<string>(
-      (existingPhotos ?? [])
-        .map(
-          (photo) =>
-            photo.companycam_photo_id
-        )
-        .filter(Boolean)
-        .map(String)
-    );
+const existingPhotoCount =
+  existingPhotos?.length ?? 0;
 
+const alreadyImported =
+  new Set<string>(
+    (existingPhotos ?? [])
+      .map(
+        (photo) =>
+          photo.companycam_photo_id
+      )
+      .filter(Boolean)
+      .map(String)
+  );
   /*
    * =========================================================
    * FETCH COMPANYCAM PHOTOS
@@ -534,7 +526,33 @@ export async function importCompanyCamProject(
 
       continue;
     }
+/*
+ * Project photo limit
+ *
+ * Never allow an automatic CompanyCam sync to push
+ * a LocalProof project above 5 total photos.
+ */
+if (
+  existingPhotoCount + importedCount >=
+  MAX_LOCALPROOF_PHOTOS
+) {
+  companyCamLog.info(
+    "photo.skipped_project_limit",
+    {
+      requestId,
+      projectId,
+      companyCamProjectId:
+        ccProjectId,
+      photoId,
+      existingPhotoCount,
+      importedCount,
+      maxLocalProofPhotos:
+        MAX_LOCALPROOF_PHOTOS,
+    }
+  );
 
+  continue;
+}
     /*
      * Missing CompanyCam URL
      */
@@ -1428,39 +1446,54 @@ export async function manualImportCompanyCamPhotos(
    */
 
   const {
-    data: existingPhotos,
-    error: existingPhotosError,
-  } = await supabase
-    .from("photos")
-    .select(
-      "companycam_photo_id"
-    )
-    .eq(
-      "project_id",
-      projectId
-    )
-    .not(
-      "companycam_photo_id",
-      "is",
-      null
-    );
+  data: existingPhotos,
+  error: existingPhotosError,
+} = await supabase
+  .from("photos")
+  .select("id, companycam_photo_id")
+  .eq("project_id", projectId);
 
-  if (existingPhotosError) {
-    throw new Error(
-      existingPhotosError.message
-    );
-  }
+if (existingPhotosError) {
+  throw new Error(
+    existingPhotosError.message
+  );
+}
 
-  const alreadyImported =
-    new Set<string>(
-      (existingPhotos ?? [])
-        .map(
-          (photo) =>
-            photo.companycam_photo_id
-        )
-        .filter(Boolean)
-        .map(String)
-    );
+const existingPhotoCount =
+  existingPhotos?.length ?? 0;
+
+const alreadyImported =
+  new Set<string>(
+    (existingPhotos ?? [])
+      .map(
+        (photo) =>
+          photo.companycam_photo_id
+      )
+      .filter(Boolean)
+      .map(String)
+  );
+
+const newPhotoIds =
+  uniquePhotoIds.filter(
+    (photoId) =>
+      !alreadyImported.has(photoId)
+  );
+
+const remainingPhotoSlots =
+  Math.max(
+    0,
+    MAX_LOCALPROOF_PHOTOS -
+      existingPhotoCount
+  );
+
+if (
+  newPhotoIds.length >
+  remainingPhotoSlots
+) {
+  throw new Error(
+    `This LocalProof project already has ${existingPhotoCount} photo${existingPhotoCount === 1 ? "" : "s"}. You can only add ${remainingPhotoSlots} more because LocalProof allows a maximum of ${MAX_LOCALPROOF_PHOTOS} photos per project.`
+  );
+}
 
   const allPhotos =
     await listCompanyCamPhotos(
