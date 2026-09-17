@@ -201,9 +201,62 @@ function normalizePhotoTag(
   ).trim();
 }
 
-/**
- * Retrieve photos for a CompanyCam project.
- */
+async function fetchPhotoTags(
+  photoId: string
+): Promise<string[]> {
+  try {
+    const data =
+      await companyCamFetch(
+        `/photos/${encodeURIComponent(photoId)}/tags`
+      );
+
+    const rawTags =
+      Array.isArray(data)
+        ? data
+        : Array.isArray(data?.tags)
+          ? data.tags
+          : Array.isArray(data?.data)
+            ? data.data
+            : [];
+
+    return rawTags
+      .map((tag: any) => normalizePhotoTag(tag))
+      .filter(Boolean);
+  } catch (error) {
+    console.error(
+      "[companycam] Failed to fetch tags for photo",
+      photoId,
+      error instanceof Error ? error.message : String(error)
+    );
+    return [];
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await fn(items[currentIndex]);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    () => worker()
+  );
+
+  await Promise.all(workers);
+
+  return results;
+}
+
 export async function listCompanyCamPhotos(
   projectId: string
 ): Promise<CCPhoto[]> {
@@ -227,8 +280,15 @@ export async function listCompanyCamPhotos(
         ? data.photos
         : [];
 
+  const tagsByPhoto =
+    await mapWithConcurrency(
+      photos,
+      5,
+      (photo: any) => fetchPhotoTags(String(photo.id))
+    );
+
   return photos.map(
-    (photo: any): CCPhoto => ({
+    (photo: any, index: number): CCPhoto => ({
       ...photo,
 
       id:
@@ -241,12 +301,7 @@ export async function listCompanyCamPhotos(
         null,
 
       tags:
-        (photo.tags ?? [])
-          .map(
-            (tag: any) =>
-              normalizePhotoTag(tag)
-          )
-          .filter(Boolean),
+        tagsByPhoto[index] ?? [],
     })
   );
 }
