@@ -14,7 +14,7 @@ export default function DeleteButton({ projectId, label }: { projectId: string; 
     setError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
-      cconst json = await res.json().catch(() => ({}));
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Delete failed");
       setBusy(false);
       router.refresh();
